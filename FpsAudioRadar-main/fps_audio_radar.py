@@ -74,6 +74,9 @@ CONFIG = {
     "shape":            "circle",      # 默认圆形雷达
     "center_dot_size":  1,
     "point_size":       1.0,           # 光点大小倍率
+    "crosshair_style":  "cross",       # cross / dot / off
+    "crosshair_size":   10,            # 准星尺寸（像素，十字线长/圆点半径基准）
+    "crosshair_color":  "#FF5252",     # 准星颜色
     "device_index":     None,          # None = 自动选择默认回环
 }
 
@@ -85,6 +88,17 @@ PRESETS = {
 }
 
 SHAPE_NAMES = {"circle": "圆形雷达", "semicircle": "半圆形雷达", "hbar": "水平方向条"}
+CROSSHAIR_NAMES = {"cross": "十字准星", "dot": "圆点准星", "off": "关闭准星"}
+CROSSHAIR_COLORS = [
+    ("#66BB6A", "绿色"),
+    ("#FF5252", "红色"),
+    ("#448AFF", "蓝色"),
+    ("#FFD740", "黄色"),
+    ("#FFFFFF", "白色"),
+    ("#18FFFF", "青色"),
+    ("#FF9100", "橙色"),
+    ("#E040FB", "紫色"),
+]
 
 # 声音类型
 SOUND_TYPES = [
@@ -664,6 +678,39 @@ class RadarWidget(QWidget):
 
         self._draw_frame(p, cx, cy, r, shape)
         self._draw_events(p, cx, cy, r, shape)
+        self._draw_crosshair(p, cx, cy, shape)
+
+    def _draw_crosshair(self, p, cx, cy, shape):
+        """绘制中心准星：十字/圆点/关闭"""
+        style = CONFIG.get("crosshair_style", "cross")
+        if style == "off":
+            return
+        size = CONFIG.get("crosshair_size", 10)
+        color = QColor(CONFIG.get("crosshair_color", "#66BB6A"))
+        color.setAlpha(230)
+
+        if style == "dot":
+            p.setBrush(color)
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(QPointF(cx, cy), size * 0.4, size * 0.4)
+        elif style == "cross":
+            # 十字准星：带中心缺口的四条线，游戏风格
+            gap = size * 0.25   # 中心缺口
+            arm = size           # 线长
+            pen = QPen(color, 2)
+            p.setPen(pen)
+            # 上
+            p.drawLine(QPointF(cx, cy - gap), QPointF(cx, cy - gap - arm))
+            # 下
+            p.drawLine(QPointF(cx, cy + gap), QPointF(cx, cy + gap + arm))
+            # 左
+            p.drawLine(QPointF(cx - gap, cy), QPointF(cx - gap - arm, cy))
+            # 右
+            p.drawLine(QPointF(cx + gap, cy), QPointF(cx + gap + arm, cy))
+            # 中心微点
+            p.setBrush(color)
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(QPointF(cx, cy), 1.2, 1.2)
 
     def _draw_frame(self, p, cx, cy, r, shape):
         if shape == "circle":
@@ -845,6 +892,32 @@ class SettingsDialog(QDialog):
             self.shape_combo.setCurrentIndex(idx)
         form.addRow("雷达形状:", self.shape_combo)
 
+        # 准星样式选择
+        self.crosshair_combo = QComboBox()
+        for key, name in CROSSHAIR_NAMES.items():
+            self.crosshair_combo.addItem(name, key)
+        idx = self.crosshair_combo.findData(CONFIG.get("crosshair_style", "cross"))
+        if idx >= 0:
+            self.crosshair_combo.setCurrentIndex(idx)
+        form.addRow("准星样式:", self.crosshair_combo)
+
+        # 准星大小
+        self.crosshair_size_spin = QDoubleSpinBox()
+        self.crosshair_size_spin.setRange(4, 30)
+        self.crosshair_size_spin.setSingleStep(1)
+        self.crosshair_size_spin.setDecimals(0)
+        self.crosshair_size_spin.setValue(CONFIG.get("crosshair_size", 10))
+        form.addRow("准星大小:", self.crosshair_size_spin)
+
+        # 准星颜色
+        self.crosshair_color_combo = QComboBox()
+        for hex_val, name in CROSSHAIR_COLORS:
+            self.crosshair_color_combo.addItem(name, hex_val)
+        idx = self.crosshair_color_combo.findData(CONFIG.get("crosshair_color", "#66BB6A"))
+        if idx >= 0:
+            self.crosshair_color_combo.setCurrentIndex(idx)
+        form.addRow("准星颜色:", self.crosshair_color_combo)
+
         # 预设按钮
         preset_row = QHBoxLayout()
         for level in ("低", "中", "高"):
@@ -921,6 +994,9 @@ class SettingsDialog(QDialog):
 
     def _apply(self):
         CONFIG["shape"] = self.shape_combo.currentData()
+        CONFIG["crosshair_style"] = self.crosshair_combo.currentData()
+        CONFIG["crosshair_size"] = self.crosshair_size_spin.value()
+        CONFIG["crosshair_color"] = self.crosshair_color_combo.currentData()
         CONFIG["device_index"] = self.device_combo.currentData()
         for key, *_ in self.FIELDS:
             CONFIG[key] = self.spins[key].value()
@@ -1007,6 +1083,23 @@ def main():
         act.triggered.connect(_make_dot_switch(val))
         center_actions[val] = act
         center_menu.addAction(act)
+
+    # 准星样式
+    crosshair_menu = menu.addMenu("准星样式")
+    crosshair_actions = {}
+    def _make_crosshair_switch(key):
+        def _switch():
+            CONFIG["crosshair_style"] = key
+            radar.update()
+            for k, act in crosshair_actions.items():
+                act.setChecked(k == key)
+        return _switch
+    for key, name in CROSSHAIR_NAMES.items():
+        act = QAction(name, crosshair_menu, checkable=True)
+        act.setChecked(CONFIG.get("crosshair_style", "cross") == key)
+        act.triggered.connect(_make_crosshair_switch(key))
+        crosshair_actions[key] = act
+        crosshair_menu.addAction(act)
 
     # 重启音频
     act_restart = QAction("重启音频捕获", menu)
