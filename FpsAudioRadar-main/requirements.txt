@@ -1,0 +1,6 @@
+# FPS 听障辅助音频雷达 - 依赖清单
+# 安装: pip install -r requirements.txt
+
+numpy>=1.24,<2.0          # 数值计算、FFT频谱分析
+pyaudiowpatch>=1.0        # WASAPI系统音频回环捕获（Windows专用，PyAudio增强版）
+PyQt5>=5.15,<6.0          # 透明悬浮窗口、雷达绘制、系统托盘
